@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.devpilot/state.json
+.devpilot/state.json.lock
+.env
