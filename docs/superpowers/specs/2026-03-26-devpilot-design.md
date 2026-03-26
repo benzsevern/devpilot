@@ -109,19 +109,27 @@ devpilot changed app/routes/users.py
 3. **Verify health** — Hit health endpoint to confirm service is responding.
 4. **Optional active verification** — If `--verify-endpoint GET /api/users` is passed, hit that endpoint and return status code + response time.
 
-### Output (success):
+### Output contract
+
+The `changed` command **always returns an array** of results, even for single-service matches. This avoids polymorphic return types that break consumers.
+
+### Output (single service, success):
 ```json
 {
   "file": "app/routes/users.py",
-  "service": "backend",
-  "reload": "reloaded",
-  "reload_time_ms": 1200,
-  "health": "healthy",
-  "verification": {
-    "endpoint": "GET /api/users",
-    "status": 200,
-    "response_time_ms": 45
-  }
+  "results": [
+    {
+      "service": "backend",
+      "reload": "reloaded",
+      "reload_time_ms": 1200,
+      "health": "healthy",
+      "verification": {
+        "endpoint": "GET /api/users",
+        "status": 200,
+        "response_time_ms": 45
+      }
+    }
+  ]
 }
 ```
 
@@ -129,11 +137,24 @@ devpilot changed app/routes/users.py
 ```json
 {
   "file": "app/routes/users.py",
-  "service": "backend",
-  "reload": "reload_failed",
-  "error": "SyntaxError: unexpected indent (app/routes/users.py, line 42)",
-  "health": "unreachable",
-  "suggestion": "Fix syntax error on line 42, then re-check"
+  "results": [
+    {
+      "service": "backend",
+      "reload": "reload_failed",
+      "error": "SyntaxError: unexpected indent (app/routes/users.py, line 42)",
+      "health": "unreachable",
+      "suggestion": "Fix syntax error on line 42, then re-check"
+    }
+  ]
+}
+```
+
+### Output (no matching service):
+```json
+{
+  "file": "assets/logo.png",
+  "results": [],
+  "message": "No registered service watches this file pattern"
 }
 ```
 
