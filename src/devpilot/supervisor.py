@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,7 @@ from devpilot.frameworks.registry import FrameworkRegistry
 from devpilot.health.checker import check_health
 from devpilot.process.attacher import AttachedProcess
 from devpilot.process.manager import ManagedProcess
-from devpilot.recovery.strategy import RecoveryStrategy
+from devpilot.recovery.strategy import RecoveryStrategy, RecoveryTier
 from devpilot.state.store import StateStore
 from devpilot.watch.file_watcher import match_file_to_services
 from devpilot.watch.reload import ReloadDetector, ReloadResult
@@ -31,8 +32,11 @@ class Supervisor:
         self._managed: dict[str, ManagedProcess] = {}
         self._attached: dict[str, AttachedProcess] = {}
         self._reload_detectors: dict[str, ReloadDetector] = {}
+        self._crash_counts: dict[str, int] = {}
         self._registry = FrameworkRegistry()
         self._recovery = RecoveryStrategy(max_retries, backoff_seconds)
+        self._monitor_stop = threading.Event()
+        self._monitor_thread: threading.Thread | None = None
 
     def run_service(
         self,
@@ -61,6 +65,10 @@ class Supervisor:
         proc.start()
         self._managed[name] = proc
 
+        # Create reload detector so _on_stdout_line can feed it
+        if r_patterns:
+            self._reload_detectors[name] = ReloadDetector(r_patterns)
+
         self.store.register_service(
             id=name,
             type=type,
@@ -73,6 +81,9 @@ class Supervisor:
             file_patterns=f_patterns,
             reload_patterns=r_patterns,
         )
+
+        # Start crash monitoring if not already running
+        self._start_monitor()
 
     def attach_service(
         self,
@@ -111,10 +122,13 @@ class Supervisor:
             del self._managed[name]
         if name in self._attached:
             del self._attached[name]
+        self._reload_detectors.pop(name, None)
+        self._crash_counts.pop(name, None)
         self.store.remove_service(name)
 
     def stop_all(self) -> None:
         """Stop all services."""
+        self._monitor_stop.set()
         for name in list(self._managed.keys()):
             self.stop_service(name)
         for name in list(self._attached.keys()):
@@ -250,7 +264,7 @@ class Supervisor:
             detector.feed_line(line)
 
             # Check if detector has completed — if so, write event to state file
-            if detector._done.is_set():
+            if detector.is_done:
                 result = detector.get_result(timeout=0)
                 self.store.append_reload_event(
                     service_name,
@@ -261,3 +275,48 @@ class Supervisor:
                 )
                 # Reset detector for next reload cycle
                 self._reload_detectors[service_name] = ReloadDetector(reload_patterns)
+
+    def _start_monitor(self) -> None:
+        """Start the crash monitoring thread if not already running."""
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            return
+        self._monitor_stop.clear()
+        self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._monitor_thread.start()
+
+    def _monitor_loop(self) -> None:
+        """Periodically check managed processes for crashes and auto-recover."""
+        while not self._monitor_stop.is_set():
+            for name in list(self._managed.keys()):
+                proc = self._managed.get(name)
+                if proc is None:
+                    continue
+                if not proc.is_alive():
+                    self._handle_crash(name, proc)
+            self._monitor_stop.wait(timeout=2)
+
+    def _handle_crash(self, name: str, proc: ManagedProcess) -> None:
+        """Handle a crashed managed process using the recovery strategy."""
+        self._crash_counts[name] = self._crash_counts.get(name, 0) + 1
+        attempt = self._crash_counts[name]
+        action = self._recovery.on_crash(name, attempt)
+
+        if action.tier == RecoveryTier.SILENT or action.tier == RecoveryTier.REPORT:
+            # Auto-restart
+            self.store.append_log("auto_restart", name, f"attempt {attempt}, delay {action.delay}s")
+            if action.delay > 0:
+                time.sleep(action.delay)
+            try:
+                proc.restart()
+                self.store.update_service(name, pid=proc.pid or 0, status="restarted")
+                if action.tier == RecoveryTier.REPORT:
+                    self.store.update_service(name, status="restarted_with_warning")
+            except Exception as e:
+                self.store.append_log("restart_failed", name, str(e))
+        else:
+            # Escalate — report but don't act
+            self.store.update_service(name, status="crashed")
+            self.store.append_log(
+                "escalation", name,
+                action.detail or f"Crashed {attempt} times, manual intervention needed",
+            )

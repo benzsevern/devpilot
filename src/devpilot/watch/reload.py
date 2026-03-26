@@ -68,6 +68,11 @@ class ReloadDetector:
                     self._done.set()
                 break
 
+    @property
+    def is_done(self) -> bool:
+        """Whether the detector has completed (reload or error)."""
+        return self._done.is_set()
+
     def mark_error(self, error: str) -> None:
         """Explicitly mark a reload failure with an error message."""
         self._error = error
