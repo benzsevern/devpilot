@@ -39,7 +39,7 @@ Three-layer design:
 
 **Process Manager** — Two modes per service:
 - **Managed** (`devpilot run`): Spawns the process, owns stdin/stdout/stderr, tracks PID directly. Full lifecycle control.
-- **Attached** (`devpilot attach`): Discovers process by port scan, tracks PID via `lsof`/`netstat`. Limited control — can monitor but restart requires the original command (provided via `--cmd` flag).
+- **Attached** (`devpilot attach`): Discovers process by port scan via `psutil`, tracks PID. Limited control — can monitor health (TCP/HTTP) but **cannot detect reload patterns** (no access to the process's stdout). Reload detection in `changed` falls back to health-check-only verification in attached mode. Optional `--log-file` flag enables reload pattern matching by tailing the service's log file. Restart requires the original command (provided via `--cmd` flag).
 
 **File Watcher** — Uses `watchdog` to monitor source directories. Maps files to services based on configured `file_patterns` (e.g., `*.py` → backend, `src/**/*.tsx` → frontend).
 
@@ -47,7 +47,13 @@ Three-layer design:
 
 **State** is held in a JSON file (`.devpilot/state.json` in the project) so the CLI can query it without keeping a socket open. File locking via `filelock` for safe concurrent access.
 
-**No separate daemon process.** Each `run` command spawns the target as a child process with monitoring in a background thread. The state file is the shared coordination point.
+**Process model:** `devpilot run` spawns the target process as a child and monitors it in a background thread. The CLI process itself stays alive as the supervisor for that service. `devpilot up` is a single long-lived foreground process that spawns all configured services as children and monitors them all — it is the supervisor for the session. When the `devpilot up` process is killed (Ctrl+C or signal), it gracefully shuts down all children. Individual `devpilot run` processes coordinate through the state file, so `devpilot status` can report on services started by separate `devpilot run` invocations.
+
+**Concurrency model:** The supervisor uses threads (not asyncio). Each managed service gets a monitoring thread that reads stdout and watches for reload patterns. `httpx` is used in synchronous mode. This keeps the architecture simple and avoids async/sync boundary issues across the codebase.
+
+**Platform support:** DevPilot targets Windows, macOS, and Linux. All process inspection uses `psutil` (cross-platform) rather than `lsof` or platform-specific tools. Graceful shutdown uses `process.terminate()` (SIGTERM on Unix, `TerminateProcess` on Windows) with a 5-second grace period before `process.kill()`. `watchdog` and `filelock` are cross-platform.
+
+**State file locking protocol:** All mutations follow lock-read-modify-write-unlock with a 5-second lock timeout. If the lock cannot be acquired (stale lock from a crashed process), `filelock` cleans up automatically after timeout. The state file includes a `schema_version` field (starting at `1`) for future migration support.
 
 ---
 
@@ -98,8 +104,8 @@ devpilot changed app/routes/users.py
 
 **Pipeline:**
 
-1. **Correlate file → service** — Match file path against registered services' `file_patterns`.
-2. **Wait for reload signal** — Watch service stdout for known reload patterns. Timeout after configurable window (default 10s). Results: `reloaded`, `reload_failed`, `timeout`, `no_reload_expected`.
+1. **Correlate file → service** — Match file path against registered services' `file_patterns`. If zero services match, return `"service": null` with `"reload": "no_service_matched"`. If multiple services match, return results for all matching services as an array.
+2. **Wait for reload signal** — For managed services: watch stdout for known reload patterns. For attached services: fall back to health-check-only (wait for port to go down and come back, or just re-check health after a delay). Timeout after configurable window (default 10s). Results: `reloaded`, `reload_failed`, `timeout`, `no_reload_expected`, `health_only` (attached mode).
 3. **Verify health** — Hit health endpoint to confirm service is responding.
 4. **Optional active verification** — If `--verify-endpoint GET /api/users` is passed, hit that endpoint and return status code + response time.
 
@@ -146,7 +152,7 @@ Tiered strategy — never does what the AI coder's panic cycle does:
 
 ### Tier 2 — Auto-recover and report
 - Process crashed 3+ times → restart but flag in status with last error
-- Port conflict on startup → pick next available port, update registry, report new port
+- Port conflict on startup → if the service command supports `PORT` env var or a `--port` flag (detected from framework profile), restart on next available port and report. Otherwise, escalate to Tier 3
 - File change detected but no reload signal → report hot-reload may not work for this file type
 
 ### Tier 3 — Escalate, don't act
@@ -157,7 +163,9 @@ Tiered strategy — never does what the AI coder's panic cycle does:
 
 **Core principle:** DevPilot never rotates ports randomly, never kills processes it didn't start, never nukes all Python tasks. When uncertain, it reports with context and lets the AI decide.
 
-**Recovery log** — every action logged to state file with timestamps, queryable via `devpilot log`.
+**Recovery log** — every action logged to state file with timestamps, queryable via `devpilot log`. Log entries include: timestamp, event type (auto_restart, escalation, health_change, reload_detected, reload_failed), service name, and detail string. Logs are capped at 500 entries with oldest evicted. Filterable by `--service` and `--since` flags.
+
+**Health check lifecycle:** Health polling runs on-demand, not continuously. `devpilot status` triggers a health check. `devpilot changed` triggers health checks as part of its pipeline. The background monitoring thread for managed services watches stdout continuously but only checks health when a state change is detected (crash, reload signal, etc.). This avoids unnecessary resource usage. Configurable via `health_interval` in `.devpilot.yaml` for users who want continuous polling (default: off).
 
 ---
 
@@ -177,6 +185,7 @@ devpilot attach <name>           Attach to existing process
   --port 8000                    Required: port to monitor
   --type backend|frontend        Service type
   --cmd "uvicorn app:main"       Original command (enables restart recovery)
+  --log-file /path/to/log        Tail log file for reload pattern detection
 
 devpilot status                  All services summary
 devpilot status <name>           Single service detail
@@ -242,7 +251,11 @@ custom_frameworks:
     health: TCP
 ```
 
-`devpilot init` scans for `requirements.txt` + `package.json`, `pyproject.toml` + `vite.config.ts`, etc. and generates a starter config.
+`devpilot init` scans for known project markers and generates a config non-interactively (AI-coder-friendly):
+- `pyproject.toml` or `requirements.txt` with `uvicorn`/`flask`/`django` → backend service
+- `package.json` with `vite`/`next`/`react-scripts` in scripts → frontend service
+- If both `pyproject.toml` and `requirements.txt` exist, prefers `pyproject.toml`
+- Writes `.devpilot.yaml` with detected services and prints what it found to stdout as JSON
 
 ---
 
@@ -295,7 +308,7 @@ devpilot/
 ### Dependencies
 - `click` — CLI framework
 - `watchdog` — file system events
-- `httpx` — async HTTP for health checks
+- `httpx` — HTTP for health checks (synchronous mode)
 - `psutil` — cross-platform process inspection
 - `pyyaml` — config file parsing
 - `filelock` — safe concurrent state file access
