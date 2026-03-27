@@ -8,6 +8,29 @@ AI coding agents (Claude Code, Cursor, Copilot) break dev servers constantly —
 
 ## Install
 
+### MCP Server (recommended for AI tools)
+
+DevPilot runs as a **local** MCP server because it needs direct access to your machine's processes, ports, and filesystem. Install once, and every AI session has the tools available.
+
+**Claude Code:**
+```bash
+pip install "devpilot-ai[mcp]"
+claude mcp add devpilot -- devpilot-mcp
+```
+
+**Cursor / VS Code / other MCP clients:**
+```json
+{
+  "mcpServers": {
+    "devpilot": {
+      "command": "devpilot-mcp"
+    }
+  }
+}
+```
+
+> **Why local, not remote?** DevPilot spawns processes, reads stdout, checks `localhost` ports, and manages PIDs on your machine. A remote server can't do any of that. The [Smithery listing](https://smithery.ai/server/benzsevern/devpilot) exists for discovery and documentation — actual usage requires the local server.
+
 ### CLI
 
 ```bash
@@ -19,34 +42,6 @@ Or with pipx for global CLI use:
 ```bash
 pipx install devpilot-ai
 ```
-
-### MCP Server (recommended for AI tools)
-
-Connect devpilot to any MCP-compatible AI tool — no CLI needed.
-
-**Claude Code:**
-```bash
-claude mcp add devpilot --transport http https://devpilot--benzsevern.run.tools
-```
-
-**Cursor / VS Code / other MCP clients:**
-```json
-{
-  "mcpServers": {
-    "devpilot": {
-      "url": "https://devpilot--benzsevern.run.tools"
-    }
-  }
-}
-```
-
-**Run locally (stdio):**
-```bash
-pip install "devpilot-ai[mcp]"
-claude mcp add devpilot -- devpilot-mcp
-```
-
-Browse on Smithery: [smithery.ai/server/benzsevern/devpilot](https://smithery.ai/server/benzsevern/devpilot)
 
 ## Quick Start
 
@@ -141,13 +136,7 @@ DevPilot exposes 10 tools via the [Model Context Protocol](https://modelcontextp
 | `devpilot_cleanup` | Remove stale state |
 | `devpilot_health_check` | Direct port health check |
 
-**Remote server:** `https://devpilot--benzsevern.run.tools`
-
-**Self-host with Docker:**
-```bash
-docker build -t devpilot-mcp .
-docker run -p 8000:8000 devpilot-mcp
-```
+The MCP server runs locally via stdio — it needs direct access to your machine's processes and ports. See [Install](#install) for setup.
 
 ## Built-in Framework Profiles
 
@@ -237,8 +226,7 @@ for svc in changes:
 ## Links
 
 - [PyPI](https://pypi.org/project/devpilot-ai/)
-- [Smithery](https://smithery.ai/server/benzsevern/devpilot)
-- [MCP Server](https://devpilot--benzsevern.run.tools)
+- [Smithery](https://smithery.ai/server/benzsevern/devpilot) (discovery and docs)
 
 ## License
 
