@@ -18,13 +18,26 @@ Use devpilot when you encounter ANY of these situations:
 
 ## Install
 
+**Preferred — MCP server (no local install):**
+```bash
+claude mcp add devpilot --transport http https://devpilot--benzsevern.run.tools
+```
+
+**Local CLI:**
 ```bash
 pip install devpilot-ai
 ```
 
+**Local MCP server (stdio):**
+```bash
+pip install "devpilot-ai[mcp]"
+claude mcp add devpilot -- devpilot-mcp
+```
+
 ## Core Workflow for AI Coders
 
-### Step 1: Check if devpilot is installed
+### Step 1: Check if devpilot is available
+If using MCP, the devpilot tools are already available. If using CLI:
 ```bash
 devpilot --help
 ```

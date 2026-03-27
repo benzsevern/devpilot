@@ -8,6 +8,8 @@ AI coding agents (Claude Code, Cursor, Copilot) break dev servers constantly —
 
 ## Install
 
+### CLI
+
 ```bash
 pip install devpilot-ai
 ```
@@ -15,8 +17,36 @@ pip install devpilot-ai
 Or with pipx for global CLI use:
 
 ```bash
-pipx install devpilot
+pipx install devpilot-ai
 ```
+
+### MCP Server (recommended for AI tools)
+
+Connect devpilot to any MCP-compatible AI tool — no CLI needed.
+
+**Claude Code:**
+```bash
+claude mcp add devpilot --transport http https://devpilot--benzsevern.run.tools
+```
+
+**Cursor / VS Code / other MCP clients:**
+```json
+{
+  "mcpServers": {
+    "devpilot": {
+      "url": "https://devpilot--benzsevern.run.tools"
+    }
+  }
+}
+```
+
+**Run locally (stdio):**
+```bash
+pip install "devpilot-ai[mcp]"
+claude mcp add devpilot -- devpilot-mcp
+```
+
+Browse on Smithery: [smithery.ai/server/benzsevern/devpilot](https://smithery.ai/server/benzsevern/devpilot)
 
 ## Quick Start
 
@@ -94,6 +124,31 @@ Without answers, AI coders guess. They kill processes they shouldn't, rotate por
 
 **Core principle:** devpilot never rotates ports randomly, never kills processes it didn't start, never nukes all Python tasks.
 
+## MCP Server
+
+DevPilot exposes 10 tools via the [Model Context Protocol](https://modelcontextprotocol.io/), making it natively accessible to any MCP-compatible AI client.
+
+| Tool | Description |
+|------|-------------|
+| `devpilot_status` | Health check services |
+| `devpilot_changed` | Report file edit, get reload + health result |
+| `devpilot_run` | Start a managed service |
+| `devpilot_attach` | Monitor an existing service |
+| `devpilot_stop` | Stop managed services |
+| `devpilot_init` | Auto-detect project and generate config |
+| `devpilot_up` | Start all services from config |
+| `devpilot_log` | View events and recovery actions |
+| `devpilot_cleanup` | Remove stale state |
+| `devpilot_health_check` | Direct port health check |
+
+**Remote server:** `https://devpilot--benzsevern.run.tools`
+
+**Self-host with Docker:**
+```bash
+docker build -t devpilot-mcp .
+docker run -p 8000:8000 devpilot-mcp
+```
+
 ## Built-in Framework Profiles
 
 | Framework | Detection | Default Port |
@@ -120,8 +175,7 @@ services:
     file_patterns:
       - "src/**/*.py"
     reload_patterns:
-      - "Started reloading"
-      - "Application startup complete"
+      - "Reloading..."
 
   frontend:
     cmd: "npm run dev"
@@ -156,7 +210,7 @@ Every command returns structured JSON to stdout with exit codes 0 (success), 1 (
 
 ## For AI Tool Authors
 
-devpilot is designed to be called programmatically. The JSON output and deterministic exit codes make it straightforward to integrate into any AI coding workflow:
+devpilot is designed to be called programmatically. The MCP server is the recommended integration path, but the CLI also works:
 
 ```python
 import subprocess, json
@@ -169,7 +223,6 @@ changes = json.loads(result.stdout)
 
 for svc in changes:
     if not svc["healthy"]:
-        # check the reload status before panicking
         if svc["reload"] == "reload_failed":
             print(f"Code error in {svc['service']}: {svc.get('error')}")
         elif svc["reload"] == "timeout":
@@ -180,6 +233,12 @@ for svc in changes:
 
 - Python 3.10+
 - Works on Windows, macOS, and Linux
+
+## Links
+
+- [PyPI](https://pypi.org/project/devpilot-ai/)
+- [Smithery](https://smithery.ai/server/benzsevern/devpilot)
+- [MCP Server](https://devpilot--benzsevern.run.tools)
 
 ## License
 
