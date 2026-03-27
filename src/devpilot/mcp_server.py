@@ -11,19 +11,20 @@ from mcp.server.fastmcp import FastMCP
 from devpilot.config import load_config
 from devpilot.frameworks.registry import FrameworkRegistry
 from devpilot.health.checker import check_health
-from devpilot.health.verifier import verify_endpoint
 from devpilot.state.store import StateStore
 from devpilot.supervisor import Supervisor
-from devpilot.watch.file_watcher import match_file_to_services
 
 mcp = FastMCP(
     "devpilot",
-    instructions="Dev server supervisor for AI coders — manage dev server lifecycles, detect reloads, check health, and recover from crashes",
+    instructions=(
+        "DevPilot is a dev server supervisor for AI coders. "
+        "Use devpilot_status to check server health, devpilot_changed after editing files "
+        "to verify reloads, devpilot_run to start servers, and devpilot_stop to shut them down. "
+        "NEVER kill processes manually — use devpilot instead."
+    ),
     host="0.0.0.0",
     port=int(os.environ.get("PORT", "8000")),
 )
-
-# --- Helpers ---
 
 
 def _get_project_dir() -> Path:
@@ -50,21 +51,14 @@ def _get_supervisor() -> Supervisor:
     )
 
 
-# --- Tools ---
-
-
 @mcp.tool()
 def devpilot_status(service_name: Optional[str] = None) -> dict:
-    """Check the health status of dev server services.
-
-    Returns live health check results for all registered services, or a specific
-    service if named. Use this to verify servers are running and responsive.
+    """Check health status of dev server services. Returns live health check results including status, response time, and configuration for all registered services or a specific one.
 
     Args:
-        service_name: Optional name of a specific service to check. If omitted, checks all services.
+        service_name: Name of a specific service to check. Omit to check all.
     """
-    supervisor = _get_supervisor()
-    return supervisor.get_status(service_name)
+    return _get_supervisor().get_status(service_name)
 
 
 @mcp.tool()
@@ -73,19 +67,14 @@ def devpilot_changed(
     verify_endpoint: Optional[str] = None,
     timeout: float = 15,
 ) -> dict:
-    """Report a file change and check if the dev server reloaded successfully.
-
-    Call this AFTER editing a file to find out which service was affected,
-    whether the reload succeeded, and if the server is healthy. This is the
-    primary feedback loop for AI coders.
+    """Report a file change and check if the dev server reloaded successfully. Call this AFTER editing a file. Returns which service was affected, reload status (reloaded/reload_failed/timeout), and health. This is the primary feedback loop for AI coders.
 
     Args:
-        filepath: Path of the changed file (relative to project root).
-        verify_endpoint: Optional endpoint to hit after reload (e.g. "/api/hello").
-        timeout: Max seconds to wait for reload detection.
+        filepath: Path of the changed file relative to project root.
+        verify_endpoint: Optional HTTP endpoint to hit after reload, e.g. "/api/hello".
+        timeout: Max seconds to wait for reload detection. Default 15.
     """
-    supervisor = _get_supervisor()
-    return supervisor.handle_changed(filepath, verify_endpoint, timeout)
+    return _get_supervisor().handle_changed(filepath, verify_endpoint, timeout)
 
 
 @mcp.tool()
@@ -98,23 +87,19 @@ def devpilot_run(
     file_patterns: Optional[list[str]] = None,
     reload_patterns: Optional[list[str]] = None,
 ) -> dict:
-    """Start and manage a dev server process.
-
-    DevPilot spawns the process, captures stdout, detects reload patterns,
-    and monitors health. Use this instead of running dev servers directly.
+    """Start and manage a dev server process. Spawns the process, captures stdout, detects reload patterns, monitors health, and auto-recovers from crashes. Supports FastAPI, Flask, Django, Vite, Next.js, and CRA with auto-detected defaults.
 
     Args:
-        name: Unique name for this service (e.g. "api", "frontend").
-        cmd: Shell command to start the server (e.g. "uvicorn main:app --reload --port 8000").
+        name: Unique service name, e.g. "api" or "frontend".
+        cmd: Shell command to start the server, e.g. "uvicorn main:app --reload --port 8000".
         port: Port the server listens on. Auto-detected from framework if omitted.
         service_type: "backend" or "frontend". Auto-detected if omitted.
-        health_endpoint: HTTP path for health checks (e.g. "/health"). Uses TCP check if omitted.
-        file_patterns: Glob patterns for files this service watches (e.g. ["**/*.py"]).
-        reload_patterns: Stdout patterns that indicate a successful reload.
+        health_endpoint: HTTP path for health checks, e.g. "/health". Uses TCP if omitted.
+        file_patterns: Glob patterns for watched files, e.g. ["**/*.py"].
+        reload_patterns: Stdout patterns indicating a successful reload.
     """
     supervisor = _get_supervisor()
-    registry = FrameworkRegistry()
-    profile = registry.detect(cmd)
+    profile = FrameworkRegistry().detect(cmd)
 
     resolved_type = service_type or (profile.type if profile else "backend")
     resolved_port = port or (profile.default_port if profile else 8000)
@@ -147,16 +132,13 @@ def devpilot_attach(
     cmd: Optional[str] = None,
     health_endpoint: Optional[str] = None,
 ) -> dict:
-    """Attach to an already-running dev server process for monitoring.
-
-    DevPilot discovers the process by port and monitors health, but does NOT
-    own or restart it. Use this when the server is started externally.
+    """Attach to an already-running dev server for health monitoring. Discovers the process by port but does NOT own or restart it. Use when the server was started externally.
 
     Args:
-        name: Unique name for this service.
-        port: Port the existing server is listening on.
+        name: Unique service name.
+        port: Port the existing server listens on.
         service_type: "backend" or "frontend".
-        cmd: Original command used to start the server (for reference).
+        cmd: Original start command (for reference only).
         health_endpoint: HTTP path for health checks.
     """
     supervisor = _get_supervisor()
@@ -174,14 +156,11 @@ def devpilot_attach(
 
 @mcp.tool()
 def devpilot_stop(name: Optional[str] = None, stop_all: bool = False) -> dict:
-    """Stop managed dev server services.
-
-    Gracefully terminates processes. Only stops services that devpilot started
-    (managed mode). Never kills processes it didn't start.
+    """Gracefully stop managed dev server services. Only stops services that devpilot started. Never kills processes it didn't start.
 
     Args:
         name: Name of a specific service to stop.
-        stop_all: If true, stop all managed services.
+        stop_all: Set true to stop all managed services.
     """
     supervisor = _get_supervisor()
     if stop_all:
@@ -196,12 +175,7 @@ def devpilot_stop(name: Optional[str] = None, stop_all: bool = False) -> dict:
 
 @mcp.tool()
 def devpilot_init() -> dict:
-    """Auto-detect the project structure and generate a .devpilot.yaml config.
-
-    Scans for pyproject.toml, requirements.txt, and package.json to detect
-    frameworks (FastAPI, Flask, Django, Vite, Next.js, CRA) and generates
-    appropriate configuration.
-    """
+    """Auto-detect project structure and generate .devpilot.yaml config. Scans for pyproject.toml, requirements.txt, and package.json to detect frameworks (FastAPI, Flask, Django, Vite, Next.js, CRA) and generates appropriate service configuration."""
     import yaml
 
     project_dir = _get_project_dir()
@@ -283,11 +257,7 @@ def devpilot_init() -> dict:
 
 @mcp.tool()
 def devpilot_up() -> dict:
-    """Start all services defined in .devpilot.yaml.
-
-    Reads the project configuration and starts each service under supervision.
-    Equivalent to running each service with devpilot_run.
-    """
+    """Start all services defined in .devpilot.yaml. Reads the project config and starts each service under supervision with auto-recovery."""
     config = load_config(_get_project_dir())
     if config is None:
         return {"error": "No .devpilot.yaml found. Run devpilot_init first."}
@@ -312,10 +282,10 @@ def devpilot_up() -> dict:
 
 @mcp.tool()
 def devpilot_log(service_name: Optional[str] = None) -> dict:
-    """View recent devpilot events (restarts, crashes, recoveries).
+    """View recent devpilot events including auto-restarts, crashes, recoveries, and escalations.
 
     Args:
-        service_name: Filter events to a specific service.
+        service_name: Filter to a specific service. Omit for all events.
     """
     store = _get_store()
     state = store.read()
@@ -329,7 +299,7 @@ def devpilot_log(service_name: Optional[str] = None) -> dict:
 
 @mcp.tool()
 def devpilot_cleanup() -> dict:
-    """Remove stale state entries for processes that are no longer running."""
+    """Remove stale state entries for processes that are no longer running. Cleans up dead PIDs and orphan service registrations."""
     store = _get_store()
     removed = store.cleanup()
     return {"removed": removed}
@@ -337,14 +307,11 @@ def devpilot_cleanup() -> dict:
 
 @mcp.tool()
 def devpilot_health_check(port: int, endpoint: Optional[str] = None) -> dict:
-    """Perform a direct health check on a port.
-
-    Useful for checking if a server is responding without going through the
-    full devpilot service registration.
+    """Perform a direct health check on any port. Returns healthy/unhealthy status, HTTP status code, and response time. Works without registering a service.
 
     Args:
         port: Port number to check.
-        endpoint: HTTP endpoint path (e.g. "/health"). Uses TCP check if omitted.
+        endpoint: HTTP path like "/health". Uses raw TCP check if omitted.
     """
     result = check_health(port=port, endpoint=endpoint)
     return {
