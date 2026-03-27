@@ -61,6 +61,7 @@ class Supervisor:
             cmd=cmd,
             port=port,
             on_line=lambda line, n=name, rp=r_patterns: self._on_stdout_line(n, line, rp),
+            cwd=str(self.project_dir),
         )
         proc.start()
         self._managed[name] = proc
@@ -223,9 +224,9 @@ class Supervisor:
     def _check_reload(self, svc_id: str, svc: dict, timeout: float) -> ReloadResult:
         """Check for reload on a service after a file change.
 
-        For in-process supervisors (same process as `run`), uses the in-memory
-        reload detector. For cross-process callers (separate `changed` CLI call),
-        polls the state file for reload events written by the monitoring thread.
+        First checks the state file for events already written by _on_stdout_line
+        (handles both in-process and cross-process scenarios). Falls back to
+        polling the in-memory detector or state file until timeout.
         """
         if svc.get("mode") == "attached":
             return ReloadResult(status="health_only")
@@ -234,13 +235,11 @@ class Supervisor:
         if not patterns:
             return ReloadResult(status="no_reload_expected")
 
-        # If we have an in-memory detector (same process), use it
-        if svc_id in self._reload_detectors:
-            return self._reload_detectors[svc_id].get_result(timeout=timeout)
-
-        # Cross-process: poll state file for reload events
+        # Poll for reload events — check state file first (written by _on_stdout_line
+        # when a reload completes), then fall back to in-memory detector
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            # Check state file for an already-written reload event
             event = self.store.consume_reload_event(svc_id)
             if event:
                 return ReloadResult(
@@ -249,6 +248,12 @@ class Supervisor:
                     error=event.get("error"),
                     suggestion=event.get("suggestion"),
                 )
+
+            # Check in-memory detector if available (same process as `run`)
+            detector = self._reload_detectors.get(svc_id)
+            if detector and detector.is_done:
+                return detector.get_result(timeout=0)
+
             time.sleep(0.5)
 
         return ReloadResult(status="timeout")

@@ -18,6 +18,22 @@ from devpilot.state.store import StateStore
 from devpilot.supervisor import Supervisor
 
 
+def _fix_msys_path(value: str | None) -> str | None:
+    """Fix MSYS/Git Bash path expansion on Windows.
+
+    Git Bash converts CLI args like /health to C:/Program Files/Git/health.
+    Detect and reverse this so health endpoints stay as /health.
+    """
+    if value is None:
+        return None
+    # MSYS expands /foo to C:/Program Files/Git/foo (or similar drive letters)
+    import re
+    m = re.match(r'^[A-Z]:/(?:Program Files(?:/Git)?|usr|mingw\d*)(/.*)$', value, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    return value
+
+
 def _get_project_dir() -> Path:
     return Path(os.environ.get("DEVPILOT_PROJECT_DIR", os.getcwd()))
 
@@ -76,6 +92,7 @@ def run(name, cmd, svc_type, port, health, reload_pattern, file_pattern):
     resolved_type = svc_type or (profile.type if profile else "backend")
     resolved_port = port or (profile.default_port if profile else 8000)
 
+    health = _fix_msys_path(health)
     supervisor.run_service(
         name=name,
         cmd=cmd,
@@ -114,6 +131,7 @@ def run(name, cmd, svc_type, port, health, reload_pattern, file_pattern):
 def attach(name, port, svc_type, cmd, health, log_file):
     """Attach to an existing process on a port."""
     supervisor = _get_supervisor()
+    health = _fix_msys_path(health)
     success = supervisor.attach_service(
         name=name,
         port=port,
@@ -142,6 +160,7 @@ def status(name):
 @click.option("--timeout", type=float, default=10)
 def changed(filepath, verify_endpoint, timeout):
     """Report a file change and check if reload succeeded."""
+    verify_endpoint = _fix_msys_path(verify_endpoint)
     supervisor = _get_supervisor()
     result = supervisor.handle_changed(filepath, verify_endpoint, timeout)
     exit_code = 0

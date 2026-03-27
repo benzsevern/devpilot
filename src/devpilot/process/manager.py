@@ -22,11 +22,13 @@ class ManagedProcess:
         cmd: str,
         port: int,
         on_line: Callable[[str], None] | None = None,
+        cwd: str | None = None,
     ) -> None:
         self.name = name
         self._cmd = cmd
         self.port = port
         self._on_line = on_line
+        self._cwd = cwd
         self._process: subprocess.Popen | None = None
         self._monitor_thread: threading.Thread | None = None
         self._output: deque[str] = deque(maxlen=200)
@@ -60,6 +62,7 @@ class ManagedProcess:
             text=True,
             bufsize=1,
             env=env,
+            cwd=self._cwd,
         )
         self._monitor_thread = threading.Thread(
             target=self._monitor_stdout,

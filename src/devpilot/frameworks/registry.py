@@ -24,7 +24,7 @@ _BUILTINS: list[FrameworkProfile] = [
     FrameworkProfile(
         name="fastapi",
         detect_pattern="uvicorn",
-        reload_patterns=["Started reloading", "Application startup complete"],
+        reload_patterns=["Reloading..."],
         default_port=8000,
         health_check="/docs",
         type="backend",
