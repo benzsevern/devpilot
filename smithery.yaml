@@ -1,0 +1,18 @@
+name: devpilot
+description: Dev server supervisor for AI coders — manage dev server lifecycles, detect reloads, check health, and recover from crashes with structured feedback
+icon: 🛠️
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      projectDir:
+        type: string
+        description: Path to the project directory (defaults to current working directory)
+    required: []
+  commandFunction:
+    - python
+    - -m
+    - devpilot.mcp_server
+  env:
+    DEVPILOT_PROJECT_DIR: "{{projectDir}}"

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devpilot-ai"
-version = "0.1.1"
+version = "0.2.0"
 description = "Dev server supervisor for AI coders"
 readme = "README.md"
 license = "MIT"
@@ -45,8 +45,12 @@ Issues = "https://github.com/benzsevern/devpilot/issues"
 
 [project.scripts]
 devpilot = "devpilot.cli:main"
+devpilot-mcp = "devpilot.mcp_server:main"
 
 [project.optional-dependencies]
+mcp = [
+    "mcp[cli]>=1.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-timeout>=2.2",
