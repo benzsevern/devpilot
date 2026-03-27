@@ -1,0 +1,41 @@
+{
+  "name": "devpilot",
+  "version": "0.1.0",
+  "description": "Dev server supervisor for AI coders — detects dev server pain and provides structured process management",
+  "skills": [
+    {
+      "name": "devpilot",
+      "path": "skills/devpilot/SKILL.md",
+      "description": "Dev server supervisor guidance — install, configure, and use devpilot to manage dev server lifecycles, detect reloads, and recover from crashes. Use when: dev server crashes, hot reload fails, port conflicts, zombie processes, AI coder is stuck in a restart loop, or user asks about devpilot.",
+      "metadata": {
+        "filePattern": [
+          ".devpilot.yaml",
+          ".devpilot.yml",
+          ".devpilot/**"
+        ],
+        "bashPattern": [
+          "devpilot\\b",
+          "uvicorn.*--reload",
+          "next\\s+dev",
+          "npm\\s+run\\s+dev",
+          "vite",
+          "flask\\s+run",
+          "manage\\.py\\s+runserver"
+        ]
+      }
+    }
+  ],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/detect-devserver-pain.mjs\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -3,10 +3,32 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "devpilot"
+name = "devpilot-ai"
 version = "0.1.0"
 description = "Dev server supervisor for AI coders"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
+keywords = ["dev-server", "supervisor", "ai", "claude", "cursor", "copilot", "hot-reload", "process-manager"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Testing",
+    "Topic :: System :: Monitoring",
+]
+authors = [
+    { name = "Ben Severn", email = "benzsevern@gmail.com" },
+]
+
 dependencies = [
     "click>=8.1",
     "watchdog>=4.0",
@@ -15,6 +37,11 @@ dependencies = [
     "pyyaml>=6.0",
     "filelock>=3.13",
 ]
+
+[project.urls]
+Homepage = "https://github.com/benzsevern/devpilot"
+Repository = "https://github.com/benzsevern/devpilot"
+Issues = "https://github.com/benzsevern/devpilot/issues"
 
 [project.scripts]
 devpilot = "devpilot.cli:main"
